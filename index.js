@@ -60,14 +60,14 @@ User: @austinmm
 var render_tasklist = function(str){
     // Checked task-list box match
 	if(str.match(/<li>\[x\]\s+\w+/gi)){
-        str = str.replace(/(<li)(>\[x\]\s+)(\w+)/gi, 
+        str = str.replace(/(<li)(>\[x\]\s+)(\w+)/gi,
           `$1 style="list-style-type: none;"><input type="checkbox" 
           checked style="list-style-type: none; 
           margin: 0 0.2em 0 -1.3em;" disabled> $3`);
     }
     // Unchecked task-list box match
     if (str.match(/<li>\[ \]\s+\w+/gi)){
-        str = str.replace(/(<li)(>\[ \]\s+)(\w+)/gi, 
+        str = str.replace(/(<li)(>\[ \]\s+)(\w+)/gi,
           `$1 style="list-style-type: none;"><input type="checkbox" 
             style="list-style-type: none; 
             margin: 0 0.2em 0 -1.3em;" disabled> $3`);
@@ -164,8 +164,20 @@ document.addEventListener('drop', function(e) {
 }, false);
 
 //Print the document named as the document title encoded to avoid strange chars and spaces
-function saveAsMarkdown() {
-    save(editor.getValue(), document.title.replace(/[`~!@#$%^&*()_|+\-=?;:'",.<>\{\}\[\]\\\/\s]/gi, '') + ".md");
+async function saveAsMarkdown() {
+    if (currentFileHandle && window.showSaveFilePicker) {
+        try {
+            const writable = await currentFileHandle.createWritable();
+            await writable.write(editor.getValue());
+            await writable.close();
+            alert('File saved successfully!');
+            return;
+        } catch (err) {
+            alert('Failed to save file: ' + err.message);
+        }
+    }
+    // fallback: download
+    save(editor.getValue(), document.title.replace(/[`~!@#$%^&*()_|+\-=?;:'\",.<>\{\}\[\]\\\/\s]/gi, '') + ".md");
 }
 
 //Print the document named as the document title encoded to avoid strange chars and spaces
@@ -199,6 +211,25 @@ function save(code, name) {
         var event = document.createEvent('MouseEvents');
         event.initMouseEvent('click', true, true, window, 1, 0, 0, 0, 0, false, false, false, false, 0, null);
         link.dispatchEvent(event);
+    }
+}
+
+window.saveToSystem = async function() {
+    if (!window.showSaveFilePicker && !currentFileHandle) {
+        alert('Your browser does not support the File System Access API.');
+        return;
+    }
+    if (currentFileHandle) {
+        try {
+            const writable = await currentFileHandle.createWritable();
+            await writable.write(editor.getValue());
+            await writable.close();
+            alert('File saved to system successfully!');
+        } catch (err) {
+            alert('Failed to save file: ' + err.message);
+        }
+    } else {
+        alert('请先用“打开”按钮打开一个本地文件，才能直接保存到系统目录。');
     }
 }
 
@@ -329,6 +360,7 @@ function processQueryParams() {
 }
 
 function start() {
+    adjustMainLayout(); // 初始加载时调整��局
     processQueryParams();
     if (window.location.hash) {
         var h = window.location.hash.replace(/^#/, '');
@@ -354,6 +386,125 @@ function start() {
     document.getElementById('fileInput').addEventListener('change', openFile, false);
 }
 
+// 文件夹选择与侧边栏渲染（支持折叠/展开）
+function renderTree(node, parent, path = "") {
+    for (const key in node) {
+        if (node[key] instanceof File) {
+            const fileDiv = document.createElement('div');
+            fileDiv.textContent = key;
+            fileDiv.className = 'sidebar-file';
+            fileDiv.onclick = async function(e) {
+                e.stopPropagation();
+                // 尝试通过 showDirectoryPicker 获取 FileSystemFileHandle
+                if (window.showDirectoryPicker) {
+                    // 这里假设你已经用 showDirectoryPicker 选过目录，并且 node[key] 有 webkitRelativePath
+                    // 但 input type="file"/webkitdirectory 方式拿到的 node[key] 只是 File，不能直接写回
+                    // 只能读取内容，不能赋值 currentFileHandle
+                    // 你可以在这里提示用户用“打开”按钮或 showDirectoryPicker 方式打开文件夹
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        editor.setValue(e.target.result);
+                    };
+                    reader.readAsText(node[key]);
+                    currentFileHandle = null; // 明确不能写回
+                } else {
+                    // 兼容老浏览器
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        editor.setValue(e.target.result);
+                    };
+                    reader.readAsText(node[key]);
+                    currentFileHandle = null;
+                }
+            };
+            parent.appendChild(fileDiv);
+        } else {
+            const folderDiv = document.createElement('div');
+            folderDiv.textContent = key;
+            folderDiv.className = 'sidebar-folder collapsed';
+            folderDiv.tabIndex = 0;
+            folderDiv.style.outline = 'none';
+            parent.appendChild(folderDiv);
+            const sub = document.createElement('div');
+            sub.style.marginLeft = '16px';
+            folderDiv.appendChild(sub);
+            // 只在第一次展开时渲染子树
+            let rendered = false;
+            folderDiv.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const expanded = folderDiv.classList.toggle('expanded');
+                folderDiv.classList.toggle('collapsed', !expanded);
+                if (expanded && !rendered) {
+                    renderTree(node[key], sub, path + key + '/');
+                    rendered = true;
+                } else if (!expanded) {
+                    sub.innerHTML = '';
+                    rendered = false;
+                }
+            });
+        }
+    }
+}
+
+// 侧边栏拖���功能
+(function() {
+    const sidebar = document.getElementById('sidebar');
+    const resizer = document.getElementById('sidebar-resizer');
+    let dragging = false;
+    resizer.addEventListener('mousedown', function(e) {
+        dragging = true;
+        document.body.style.cursor = 'ew-resize';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        let newWidth = e.clientX;
+        newWidth = Math.max(120, Math.min(400, newWidth));
+        sidebar.style.width = newWidth + 'px';
+        document.getElementById('in').style.left = newWidth + 'px';
+        document.getElementById('in').style.width = `calc(50% - ${newWidth/2}px)`;
+        document.getElementById('out').style.left = `calc(50% + ${newWidth/2}px)`;
+    });
+    document.addEventListener('mouseup', function() {
+        if (dragging) {
+            dragging = false;
+            document.body.style.cursor = '';
+        }
+    });
+})();
+
+document.getElementById('folderInput').addEventListener('change', function(e) {
+    const files = Array.from(e.target.files);
+    console.log('选择的文件:', files);
+    const tree = buildFileTree(files);
+    const sidebarTree = document.getElementById('sidebar-tree');
+    sidebarTree.innerHTML = '';
+    renderTree(tree, sidebarTree);
+    console.log('渲染的文件树:', tree);
+});
+
+// 构建文件树结构
+function buildFileTree(files) {
+    const tree = {};
+    for (const file of files) {
+        const parts = file.webkitRelativePath.split('/');
+        let current = tree;
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            if (i === parts.length - 1) {
+                // 只处理md文件
+                if (part.endsWith('.md')) {
+                    current[part] = file;
+                }
+            } else {
+                current[part] = current[part] || {};
+                current = current[part];
+            }
+        }
+    }
+    return tree;
+}
+
 window.addEventListener("beforeunload", function (e) {
     if (!editor.getValue() || editor.getValue() == localStorage.getItem('content')) {
         return;
@@ -363,5 +514,150 @@ window.addEventListener("beforeunload", function (e) {
     (e || window.event).returnValue = confirmationMessage; //Gecko + IE
     return confirmationMessage; //Gecko + Webkit, Safari, Chrome etc.
 });
+
+document.addEventListener('DOMContentLoaded', function() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('collapsed');
+        // 可选：自动调整编辑区宽度
+        if (sidebar.classList.contains('collapsed')) {
+            document.getElementById('in').style.left = '0px';
+            document.getElementById('in').style.width = '50%';
+            document.getElementById('out').style.left = '50%';
+        } else {
+            document.getElementById('in').style.left = sidebar.offsetWidth + 'px';
+            document.getElementById('in').style.width = `calc(50% - ${sidebar.offsetWidth/2}px)`;
+            document.getElementById('out').style.left = `calc(50% + ${sidebar.offsetWidth/2}px)`;
+        }
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle-navbar');
+    sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('collapsed');
+        setTimeout(adjustMainLayout, 210); // 动画后再调整，避免初始未移动
+    });
+    // 页面加载时自动调整一次
+    setTimeout(adjustMainLayout, 0);
+});
+
+function adjustMainLayout() {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar.classList.contains('collapsed')) {
+        document.getElementById('in').style.left = '0px';
+        document.getElementById('in').style.width = '50%';
+        document.getElementById('out').style.left = '50%';
+    } else {
+        // 取 sidebar 的宽度（未隐藏时）
+        let width = sidebar.offsetWidth;
+        if (width < 40) width = 220; // 默认宽度
+        document.getElementById('in').style.left = width + 'px';
+        document.getElementById('in').style.width = `calc(50% - ${width/2}px)`;
+        document.getElementById('out').style.left = `calc(50% + ${width/2}px)`;
+    }
+}
+
+let currentFileHandle = null;
+
+window.openFileWithPicker = async function() {
+    if (!window.showOpenFilePicker) {
+        alert('Your browser不支持 File System Access API');
+        return;
+    }
+    try {
+        const [fileHandle] = await window.showOpenFilePicker({
+            types: [
+                {
+                    description: 'Markdown Files',
+                    accept: {'text/markdown': ['.md', '.markdown', '.txt']}
+                }
+            ]
+        });
+        currentFileHandle = fileHandle;
+        const file = await fileHandle.getFile();
+        const contents = await file.text();
+        editor.setValue(contents);
+        document.title = file.name;
+    } catch (err) {
+        if (err.name !== 'AbortError') {
+            alert('Failed to open file: ' + err.message);
+        }
+    }
+}
+
+window.openFolderWithSystemPicker = async function() {
+    if (!window.showDirectoryPicker) {
+        alert('Your browser does not support the File System Access API.');
+        return;
+    }
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        const tree = {};
+        async function readDir(handle, treeNode) {
+            for await (const entry of handle.values()) {
+                if (entry.kind === 'file' && /\.(md|markdown|txt)$/i.test(entry.name)) {
+                    treeNode[entry.name] = entry;
+                } else if (entry.kind === 'directory') {
+                    treeNode[entry.name] = {};
+                    await readDir(entry, treeNode[entry.name]);
+                }
+            }
+        }
+        await readDir(dirHandle, tree);
+        const sidebarTree = document.getElementById('sidebar-tree');
+        sidebarTree.innerHTML = '';
+        renderSystemTree(tree, sidebarTree);
+    } catch (err) {
+        if (err.name !== 'AbortError') {
+            alert('Failed to open folder: ' + err.message);
+        }
+    }
+}
+
+function renderSystemTree(node, parent) {
+    for (const key in node) {
+        if (typeof node[key] === 'object' && node[key].kind === 'file') {
+            const fileDiv = document.createElement('div');
+            fileDiv.textContent = key;
+            fileDiv.className = 'sidebar-file';
+            fileDiv.onclick = async function(e) {
+                e.stopPropagation();
+                const fileHandle = node[key];
+                const file = await fileHandle.getFile();
+                const contents = await file.text();
+                editor.setValue(contents);
+                document.title = file.name;
+                currentFileHandle = fileHandle;
+            };
+            parent.appendChild(fileDiv);
+        } else if (typeof node[key] === 'object') {
+            const folderDiv = document.createElement('div');
+            folderDiv.textContent = key;
+            folderDiv.className = 'sidebar-folder collapsed';
+            folderDiv.tabIndex = 0;
+            folderDiv.style.outline = 'none';
+            parent.appendChild(folderDiv);
+            const sub = document.createElement('div');
+            sub.style.marginLeft = '16px';
+            folderDiv.appendChild(sub);
+            let rendered = false;
+            folderDiv.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const expanded = folderDiv.classList.toggle('expanded');
+                folderDiv.classList.toggle('collapsed', !expanded);
+                if (expanded && !rendered) {
+                    renderSystemTree(node[key], sub);
+                    rendered = true;
+                } else if (!expanded) {
+                    sub.innerHTML = '';
+                    rendered = false;
+                }
+            });
+        }
+    }
+}
 
 start();
