@@ -1,4 +1,4 @@
-body {
+ body {
      margin: 0;
      background-color: white;
  }
@@ -7,80 +7,12 @@ body {
      line-height: 16px;
  }
 
- #sidebar {
+ #in {
      position: fixed;
      top: 40px;
      left: 0;
      bottom: 0;
-     width: 220px;
-     min-width: 40px;
-     max-width: 400px;
-     background-color: #f0f0f0;
-     border-right: 1px solid #ccc;
-     overflow: auto;
-     padding: 0;
-     z-index: 20;
-     box-sizing: border-box;
-     display: flex;
-     flex-direction: row;
-     transition: width 0.2s;
- }
-
- #sidebar.collapsed {
-     width: 0 !important;
-     min-width: 0 !important;
-     max-width: 0 !important;
-     border-right: none;
- }
-
- #sidebar-toggle {
-     position: absolute;
-     top: 8px;
-     right: -18px;
-     width: 24px;
-     height: 24px;
-     z-index: 30;
-     background: #eee;
-     border: 1px solid #ccc;
-     border-radius: 12px;
-     cursor: pointer;
-     font-size: 16px;
-     padding: 0;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-     transition: right 0.2s;
- }
-
- #sidebar.collapsed #sidebar-toggle {
-     right: -12px;
-     transform: rotate(180deg);
- }
-
- #sidebar-tree {
-     flex: 1 1 auto;
-     padding: 10px;
-     overflow: auto;
- }
-
- #sidebar.collapsed #sidebar-tree, #sidebar.collapsed #sidebar-resizer {
-     display: none;
- }
-
- #sidebar-resizer {
-     width: 5px;
-     cursor: ew-resize;
-     background: #ddd;
-     flex: 0 0 5px;
-     z-index: 21;
- }
-
- #in {
-     position: fixed;
-     top: 40px;
-     left: 220px; /* Adjusted to make space for the sidebar */
-     bottom: 0;
-     width: calc(50% - 110px); /* Adjusted width */
+     width: 50%;
      height: auto;
      overflow: auto;
      font-size: 12px;
@@ -106,7 +38,7 @@ body {
      position: fixed;
      top: 40px;
      right: 0;
-     left: calc(50% + 110px); /* Adjusted to make space for the sidebar */
+     left: 50%;
      bottom: 0;
      overflow: auto;
      padding: 10px;
@@ -377,31 +309,3 @@ body{
      }
  }
 
-.sidebar-folder {
-    font-weight: bold;
-    margin-top: 8px;
-    cursor: pointer;
-    user-select: none;
-}
-
-.sidebar-folder.collapsed > div {
-    display: none;
-}
-
-.sidebar-folder::before {
-    content: '\25B6';
-    display: inline-block;
-    margin-right: 4px;
-    transition: transform 0.1s;
-}
-
-.sidebar-folder.expanded::before {
-    transform: rotate(90deg);
-}
-
-.sidebar-file {
-    margin-left: 16px;
-    cursor: pointer;
-    padding: 2px 0;
-    user-select: none;
-}
