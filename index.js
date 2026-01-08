@@ -26,9 +26,151 @@ var md = markdownit({
             return '';
         }
     })
-    .use(markdownitFootnote);
+    .use(markdownitFootnote)
+    .use(function(mdInstance) {
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        var defaultFence = mdInstance.renderer.rules.fence;
+        mdInstance.renderer.rules.fence = function(tokens, idx, options, env, self) {
+            var token = tokens[idx];
+            var info = token.info ? token.info.trim().split(' ')[0] : '';
+            if (info === 'mermaid' || info === 'gantt') {
+                var code = token.content;
+                if (info === 'gantt' && !/^\s*gantt\s*(\r?\n|$)/i.test(code)) {
+                    code = 'gantt\n' + code;
+                }
+                return '<div class="mermaid">' + escapeHtml(code) + '</div>';
+            }
+            if (defaultFence) {
+                return defaultFence(tokens, idx, options, env, self);
+            }
+            return self.renderToken(tokens, idx, options);
+        };
+    });
+
+var mermaidInited = false;
+
+function renderMermaid(container) {
+    if (!window.mermaid || !container) return;
+
+    if (!mermaidInited) {
+        try {
+            mermaid.initialize({ startOnLoad: false });
+            mermaidInited = true;
+        } catch (e) {
+            return;
+        }
+    }
+
+    var nodeList = container.querySelectorAll('.mermaid');
+    if (!nodeList || nodeList.length === 0) return;
+    var nodes = Array.prototype.slice.call(nodeList);
+
+    try {
+        if (typeof mermaid.run === 'function') {
+            var runResult = mermaid.run({ nodes: nodes });
+            if (runResult && typeof runResult.catch === 'function') {
+                runResult.catch(function(e) {
+                    console.error('渲染 mermaid 图表失败', e);
+                });
+            }
+            return;
+        }
+        if (typeof mermaid.init === 'function') {
+            mermaid.init(undefined, nodes);
+        }
+    } catch (e) {
+        console.error('渲染 mermaid 图表失败', e);
+    }
+}
 
 var hashto;
+
+var previewNavInited = false;
+
+function sanitizeHeadingId(text) {
+    return String(text)
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w\u4e00-\u9fff\-]+/g, '');
+}
+
+function ensureHeadingIds(container) {
+    if (!container) return;
+
+    var headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    var used = Object.create(null);
+    for (var i = 0; i < headings.length; i++) {
+        var heading = headings[i];
+        if (heading.id) {
+            used[heading.id] = true;
+            continue;
+        }
+
+        var base = sanitizeHeadingId(heading.textContent || '');
+        if (!base) continue;
+
+        var candidate = base;
+        var suffix = 1;
+        while (used[candidate] || document.getElementById(candidate)) {
+            suffix += 1;
+            candidate = base + '-' + suffix;
+        }
+
+        heading.id = candidate;
+        used[candidate] = true;
+    }
+}
+
+function initPreviewNavigation() {
+    if (previewNavInited) return;
+    previewNavInited = true;
+
+    var out = document.getElementById('out');
+    if (!out) return;
+
+    out.addEventListener('click', function(e) {
+        var target = e.target;
+        if (!target || !target.closest) return;
+
+        var link = target.closest('a');
+        if (!link) return;
+
+        var href = link.getAttribute('href');
+        if (!href || href[0] !== '#') return;
+
+        e.preventDefault();
+
+        var rawId = href.slice(1);
+        if (!rawId) return;
+
+        var decodedId;
+        try {
+            decodedId = decodeURIComponent(rawId);
+        } catch (err) {
+            decodedId = rawId;
+        }
+
+        var heading = document.getElementById(decodedId);
+        if (!heading || !out.contains(heading)) {
+            return;
+        }
+
+        try {
+            heading.scrollIntoView({ block: 'start' });
+        } catch (err) {
+            heading.scrollIntoView(true);
+        }
+    });
+}
 
 function update(e) {
     setOutput(e.getValue());
@@ -84,9 +226,11 @@ function setOutput(val) {
     var old = out.cloneNode(true);
     out.innerHTML = md.render(val);
     emojify.run(out);
-    console.log(out.innerHTML);
     // Checks if there are any task-list present in out.innerHTML
     out.innerHTML = render_tasklist(out.innerHTML);
+
+    ensureHeadingIds(out);
+    renderMermaid(out);
 
     var allold = old.getElementsByTagName("*");
     if (allold === undefined) return;
@@ -329,6 +473,7 @@ function processQueryParams() {
 }
 
 function start() {
+    initPreviewNavigation();
     processQueryParams();
     if (window.location.hash) {
         var h = window.location.hash.replace(/^#/, '');

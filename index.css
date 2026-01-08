@@ -108,6 +108,19 @@
      vertical-align: baseline;
  }
 
+/* Mermaid 图表：尽量居中展示，宽图也别把页面挤变形 */
+#out .mermaid {
+    text-align: center;
+    overflow-x: auto;
+}
+
+#out .mermaid svg {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    height: auto;
+}
+
 @media screen and (max-width: 1024px) {
      #in, #out {
         margin: 0;
@@ -308,4 +321,3 @@ body{
          display: none !important;
      }
  }
-

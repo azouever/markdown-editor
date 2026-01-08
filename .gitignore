@@ -11,3 +11,4 @@ dist/src/
 dist/pkg/
 *.pkg.tar.xz
 
+AGENTS.md
